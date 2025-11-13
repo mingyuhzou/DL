@@ -111,8 +111,8 @@ self.v=tf.Variable(
 ```python
 import torch
 torch.zeros(4, 3, dtype=torch.long) # dtype指定数据类型
-torch.tensor([0.2126,0.7152,0.0722],names=[' channel s']) # 传入列表
 torch.rand(4, 3) # 随机数
+torch.normal(0,0.01,size=(2,1),requires_grad=True)  # requires_grad用于跟踪梯度
 ```
 
 其余常见的还有
@@ -813,7 +813,7 @@ for i in range(1,epoch+1):
 
 ## 模型验证
 
-使用**torch.no_grad**节省资源
+使用**torch.no_grad**节省资源，所有的张量操作不会追踪计算图，不会计算梯度。
 
 ```python
 model.eval()
@@ -831,7 +831,7 @@ net=nn.Sequential(nn.Flatten(),nn.Linear(28*28,10))
 def init_weights(m):
     if type(m)==nn.Linear: # 修改线性层
         nn.init.normal_(m.weight,std=0.01) # 正态分布
-        init.constant_(m.bias, 0) # 固定值
+        nn.init.constant_(m.bias, 0) # 固定值
 # 应用
 net.apply(init_weights)
 ```
@@ -862,13 +862,331 @@ class FM(nn.Module):
 
 
 
+# 线性神经网络
+
+## 线性回归
+
+### 原理
+
+线性回归基于几个简单的假设：首先，假设自变量x和因变量y之间的关系是线性的，这里通常允许包含观测值的一些噪声；其次，假设噪声都遵循正态分布。
+
+公式表示为
+
+
+$$
+\hat{y} = w_1 x_1 + \dots + w_d x_d + b
+$$
+
+
+用点积形式简介表达模型
+$$
+\hat{y} = \mathbf{w}^\top \mathbf{x} + b
+$$
+
+
+单个样本的损失函数为平方误差函数
+$$
+l^{(i)}(\mathbf{w}, b) = \frac{1}{2} \left( \hat{y}^{(i)} - y^{(i)} \right)^2
+$$
+
+
+为了度量模型在整个数据集上的质量，需要计算在训练集n个样本的上的损失均值
+$$
+ L(\mathbf{w}, b) = \frac{1}{n} \sum_{i=1}^{n} l^{(i)}(\mathbf{w}, b) = \frac{1}{n} \sum_{i=1}^{n} \frac{1}{2} \left( \mathbf{w}^\top \mathbf{x}^{(i)} + b - y^{(i)} \right)^2
+$$
+随后小批量随机梯度下降
+
+
+$$
+\mathbf{w} \leftarrow \mathbf{w} - \frac{\eta}{|\mathcal{B}|} \sum_{i \in \mathcal{B}} \partial_{\mathbf{w}} l^{(i)}(\mathbf{w}, b) = \mathbf{w} - \frac{\eta}{|\mathcal{B}|} \sum_{i \in \mathcal{B}} \mathbf{x}^{(i)} \left( \mathbf{w}^\top \mathbf{x}^{(i)} + b - y^{(i)} \right) \\
+ b \leftarrow b - \frac{\eta}{|\mathcal{B}|} \sum_{i \in \mathcal{B}} \partial_b l^{(i)}(\mathbf{w}, b) = b - \frac{\eta}{|\mathcal{B}|} \sum_{i \in \mathcal{B}} \left( \mathbf{w}^\top \mathbf{x}^{(i)} + b - y^{(i)} \right)
+$$
+
+
+其中$\mathcal{B}$是批量大小，$\eta$是学习率
+
+
+
+### 手动实现
+
+```python
+import torch
+import random
+```
+
+
+```python
+'''
+根据带有噪声的线性模型构造一个人造数据集
+'''
+def synthetic_data(w,b,num_example):
+    X=torch.normal(0,1,(num_example,len(w)))
+    y=torch.matmul(X,w)+b
+    y+=torch.normal(0,0.01,y.shape)
+    return X,y.reshape((-1,1))
+```
+
+
+```python
+true_w=torch.tensor([2,-3.4])
+true_b=4.2
+features,labels=synthetic_data(true_w,true_b,1000)
+```
+
+
+```python
+'''
+读取数据集，每次抽取一小批量样本
+'''
+def data_iter(batch_size,features,labels):
+    num_examples=len(features)
+    indices=list(range(num_examples)) # 生成索引
+    random.shuffle(indices) # 随机打乱
+    for i in range(0,num_examples,batch_size):
+        batch_indices=torch.tensor(indices[i:min(i+batch_size,num_examples)])
+        yield features[batch_indices],labels[batch_indices] # yield关键字定义生成器函数，，允许一次返回一个结果，而不是一次性返回所有的结果
+```
+
+
+```python
+# 初始化参数
+w=torch.normal(0,0.01,size=(2,1),requires_grad=True)
+b=torch.zeros(1,requires_grad=True)
+```
+
+
+```python
+'''
+    定义模型
+'''
+def linreg(X,w,b):
+    return torch.matmul(X,w)+b
+```
+
+
+```python
+'''
+    定义损失函数
+'''
+def squared_loss(y_hat,y):
+    return (y_hat-y.reshape(y_hat.shape))**2/2
+```
+
+
+```python
+'''
+    定义优化算法
+'''
+def sgd(params,lr,batch_size):
+    with torch.no_grad(): # 禁止梯度计算，防止更新过程中发生梯度计算
+        for param in params:
+            param-=lr*param.grad/batch_size # 更新参数
+            param.grad.zero_() # 清空参数的梯度
+
+```
+
+
+```python
+# 准备
+lr=0.03
+num_epochs=3
+net=linreg
+loss=squared_loss
+batch_size=10
+```
+
+
+```python
+# 训练
+for epoch in range(num_epochs):
+    for X,y in data_iter(batch_size,features,labels):
+        l=loss(net(X,w,b),y)
+        l.sum().backward() # 反向传播
+        sgd([w,b],lr,batch_size)
+    # 用更新的参数计算下损失，用于可视化
+    with torch.no_grad():
+        tran_l=loss(net(features,w,b),labels)
+        print(f'epoch {epoch+1}, loss {float(tran_l.mean()):.4f}')
+
+```
+
+    epoch 1, loss 0.0412
+    epoch 2, loss 0.0002
+    epoch 3, loss 0.0001
+
+
+
+```python
+print(f'w的估计误差: {true_w-w.reshape(true_w.shape)}')
+print(f'b的估计误差: {true_b-b}')
+```
+
+    w的估计误差: tensor([ 0.0004, -0.0002], grad_fn=<SubBackward0>)
+    b的估计误差: tensor([4.1962e-05], grad_fn=<RsubBackward1>)
+
+### 简洁实现
+
+```python
+import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader,TensorDataset
+from d2l import torch as d2l
+```
+
+
+```python
+'''
+生成数据
+'''
+def synthetic_data(w,b,num_example):
+    X=torch.normal(0,1,(num_example,len(w)))
+    y=torch.matmul(X,w)+b
+    y+=torch.normal(0,0.01,y.shape)
+    return X,y.reshape((-1,1))
+true_w = torch.tensor([2, -3.4])
+true_b = 4.2
+features, labels = d2l.synthetic_data(true_w, true_b, 1000)
+```
+
+
+```python
+'''
+用迭代器封装随机生成的数据
+'''
+def load_array(data_arrays,batch_size,is_train=True):
+    dataset=TensorDataset(*data_arrays) # TensorDataset接受特征和标签并封装为Dataset
+    return DataLoader(dataset,batch_size=batch_size,shuffle=is_train)
+```
+
+
+```python
+batch_size=10
+data_iter=load_array((features,labels),batch_size)
+```
+
+
+```python
+# 观察是否正常工作
+next(iter(data_iter))
+```
 
 
 
 
-# Softmax回归
+    [tensor([[-0.4564, -0.8860],
+             [-0.3930,  1.4651],
+             [ 0.9992,  1.0779],
+             [-0.5995, -1.1271],
+             [ 0.7299, -0.5281],
+             [ 0.9507,  1.7498],
+             [ 0.5979, -1.5631],
+             [ 0.5104,  1.9488],
+             [-0.6493,  1.0971],
+             [-1.2549,  0.1513]]),
+     tensor([[ 6.3150],
+             [-1.5595],
+             [ 2.5221],
+             [ 6.8380],
+             [ 7.4642],
+             [ 0.1455],
+             [10.7019],
+             [-1.4121],
+             [-0.8180],
+             [ 1.1631]])]
+
+
+
+
+```python
+from torch import nn
+# 定义网络
+net=nn.Sequential(nn.Linear(2,1))
+```
+
+
+```python
+# 初始化网络参数
+net[0].weight.data.normal_(0,0.01)
+net[0].bias.data.fill_(0)
+```
+
+
+
+
+    tensor([0.])
+
+
+
+
+```python
+# 损失函数
+loss=nn.MSELoss()
+```
+
+
+```python
+# 优化器
+trainer=torch.optim.SGD(net.parameters(),lr=0.01)
+```
+
+
+```python
+num_epoch=3
+for epoch in range(num_epoch):
+    for X,y in data_iter:
+        l=loss(net(X),y)
+        # 优化器每轮清空参数
+        trainer.zero_grad()
+        l.backward()
+        trainer.step()
+    with torch.no_grad():
+        l=loss(net(features),labels)
+        print(f'epoch {epoch+1}, loss {l:f}')
+```
+
+    epoch 1, loss 0.660061
+    epoch 2, loss 0.014986
+    epoch 3, loss 0.000470
+
+
+
+```python
+w = net[0].weight.data
+print('w的估计误差：', true_w - w.reshape(true_w.shape))
+b = net[0].bias.data
+print('b的估计误差：', true_b - b)
+```
+
+    w的估计误差： tensor([ 0.0070, -0.0172])
+    b的估计误差： tensor([0.0082])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Softmax回归
 
 softmax回归是逻辑回归的一般形式，用于多分类。
+
+![image-20251113173650160](./assets/image-20251113173650160.png)
 
 
 
@@ -880,12 +1198,16 @@ softmax回归是逻辑回归的一般形式，用于多分类。
 
 
 
+损失函数如下，$\hat{y}$为模型预测，y为真实值
 
-
-
-
-
-
+$$
+\begin{align*}
+l(\mathbf{y}, \hat{\mathbf{y}}) = -\sum_{j=1}^{q} y_j \log \hat{y}_j
+&= -\sum_{j=1}^{q} y_j \log \frac{\exp(o_j)}{\sum_{k=1}^{q} \exp(o_k)} \\
+&= \sum_{j=1}^{q} y_j \log \sum_{k=1}^{q} \exp(o_k) - \sum_{j=1}^{q} y_j o_j \\
+&= \log \sum_{k=1}^{q} \exp(o_k) - \sum_{j=1}^{q} y_j o_j.
+\end{align*}
+$$
 
 
 
