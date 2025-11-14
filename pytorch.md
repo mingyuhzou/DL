@@ -868,7 +868,7 @@ class FM(nn.Module):
 
 ### 原理
 
-线性回归基于几个简单的假设：首先，假设自变量x和因变量y之间的关系是线性的，这里通常允许包含观测值的一些噪声；其次，假设噪声都遵循正态分布。
+线性回归基于几个简单的假设：**首先，假设自变量x和因变量y之间的关系是线性的，这里通常允许包含观测值的一些噪声；其次，假设噪声都遵循正态分布**。
 
 公式表示为
 
@@ -907,290 +907,17 @@ $$
 
 
 
-### 手动实现
-
-```python
-import torch
-import random
-```
-
-
-```python
-'''
-根据带有噪声的线性模型构造一个人造数据集
-'''
-def synthetic_data(w,b,num_example):
-    X=torch.normal(0,1,(num_example,len(w)))
-    y=torch.matmul(X,w)+b
-    y+=torch.normal(0,0.01,y.shape)
-    return X,y.reshape((-1,1))
-```
-
-
-```python
-true_w=torch.tensor([2,-3.4])
-true_b=4.2
-features,labels=synthetic_data(true_w,true_b,1000)
-```
-
-
-```python
-'''
-读取数据集，每次抽取一小批量样本
-'''
-def data_iter(batch_size,features,labels):
-    num_examples=len(features)
-    indices=list(range(num_examples)) # 生成索引
-    random.shuffle(indices) # 随机打乱
-    for i in range(0,num_examples,batch_size):
-        batch_indices=torch.tensor(indices[i:min(i+batch_size,num_examples)])
-        yield features[batch_indices],labels[batch_indices] # yield关键字定义生成器函数，，允许一次返回一个结果，而不是一次性返回所有的结果
-```
-
-
-```python
-# 初始化参数
-w=torch.normal(0,0.01,size=(2,1),requires_grad=True)
-b=torch.zeros(1,requires_grad=True)
-```
-
-
-```python
-'''
-    定义模型
-'''
-def linreg(X,w,b):
-    return torch.matmul(X,w)+b
-```
-
-
-```python
-'''
-    定义损失函数
-'''
-def squared_loss(y_hat,y):
-    return (y_hat-y.reshape(y_hat.shape))**2/2
-```
-
-
-```python
-'''
-    定义优化算法
-'''
-def sgd(params,lr,batch_size):
-    with torch.no_grad(): # 禁止梯度计算，防止更新过程中发生梯度计算
-        for param in params:
-            param-=lr*param.grad/batch_size # 更新参数
-            param.grad.zero_() # 清空参数的梯度
-
-```
-
-
-```python
-# 准备
-lr=0.03
-num_epochs=3
-net=linreg
-loss=squared_loss
-batch_size=10
-```
-
-
-```python
-# 训练
-for epoch in range(num_epochs):
-    for X,y in data_iter(batch_size,features,labels):
-        l=loss(net(X,w,b),y)
-        l.sum().backward() # 反向传播
-        sgd([w,b],lr,batch_size)
-    # 用更新的参数计算下损失，用于可视化
-    with torch.no_grad():
-        tran_l=loss(net(features,w,b),labels)
-        print(f'epoch {epoch+1}, loss {float(tran_l.mean()):.4f}')
-
-```
-
-    epoch 1, loss 0.0412
-    epoch 2, loss 0.0002
-    epoch 3, loss 0.0001
-
-
-
-```python
-print(f'w的估计误差: {true_w-w.reshape(true_w.shape)}')
-print(f'b的估计误差: {true_b-b}')
-```
-
-    w的估计误差: tensor([ 0.0004, -0.0002], grad_fn=<SubBackward0>)
-    b的估计误差: tensor([4.1962e-05], grad_fn=<RsubBackward1>)
-
-### 简洁实现
-
-```python
-import numpy as np
-import torch
-from torch.utils.data import Dataset, DataLoader,TensorDataset
-from d2l import torch as d2l
-```
-
-
-```python
-'''
-生成数据
-'''
-def synthetic_data(w,b,num_example):
-    X=torch.normal(0,1,(num_example,len(w)))
-    y=torch.matmul(X,w)+b
-    y+=torch.normal(0,0.01,y.shape)
-    return X,y.reshape((-1,1))
-true_w = torch.tensor([2, -3.4])
-true_b = 4.2
-features, labels = d2l.synthetic_data(true_w, true_b, 1000)
-```
-
-
-```python
-'''
-用迭代器封装随机生成的数据
-'''
-def load_array(data_arrays,batch_size,is_train=True):
-    dataset=TensorDataset(*data_arrays) # TensorDataset接受特征和标签并封装为Dataset
-    return DataLoader(dataset,batch_size=batch_size,shuffle=is_train)
-```
-
-
-```python
-batch_size=10
-data_iter=load_array((features,labels),batch_size)
-```
-
-
-```python
-# 观察是否正常工作
-next(iter(data_iter))
-```
-
-
-
-
-    [tensor([[-0.4564, -0.8860],
-             [-0.3930,  1.4651],
-             [ 0.9992,  1.0779],
-             [-0.5995, -1.1271],
-             [ 0.7299, -0.5281],
-             [ 0.9507,  1.7498],
-             [ 0.5979, -1.5631],
-             [ 0.5104,  1.9488],
-             [-0.6493,  1.0971],
-             [-1.2549,  0.1513]]),
-     tensor([[ 6.3150],
-             [-1.5595],
-             [ 2.5221],
-             [ 6.8380],
-             [ 7.4642],
-             [ 0.1455],
-             [10.7019],
-             [-1.4121],
-             [-0.8180],
-             [ 1.1631]])]
-
-
-
-
-```python
-from torch import nn
-# 定义网络
-net=nn.Sequential(nn.Linear(2,1))
-```
-
-
-```python
-# 初始化网络参数
-net[0].weight.data.normal_(0,0.01)
-net[0].bias.data.fill_(0)
-```
-
-
-
-
-    tensor([0.])
-
-
-
-
-```python
-# 损失函数
-loss=nn.MSELoss()
-```
-
-
-```python
-# 优化器
-trainer=torch.optim.SGD(net.parameters(),lr=0.01)
-```
-
-
-```python
-num_epoch=3
-for epoch in range(num_epoch):
-    for X,y in data_iter:
-        l=loss(net(X),y)
-        # 优化器每轮清空参数
-        trainer.zero_grad()
-        l.backward()
-        trainer.step()
-    with torch.no_grad():
-        l=loss(net(features),labels)
-        print(f'epoch {epoch+1}, loss {l:f}')
-```
-
-    epoch 1, loss 0.660061
-    epoch 2, loss 0.014986
-    epoch 3, loss 0.000470
-
-
-
-```python
-w = net[0].weight.data
-print('w的估计误差：', true_w - w.reshape(true_w.shape))
-b = net[0].bias.data
-print('b的估计误差：', true_b - b)
-```
-
-    w的估计误差： tensor([ 0.0070, -0.0172])
-    b的估计误差： tensor([0.0082])
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ## Softmax回归
 
-softmax回归是逻辑回归的一般形式，用于多分类。
+softmax回归是逻辑回归的一般形式，用于**多分类**。
 
 ![image-20251113173650160](./assets/image-20251113173650160.png)
 
 
 
-对于输入数据$\{(x_1,y_1),(x_2,y_2),\dots,(x_m,y_m)\}$有$k$个类别，即$y_i \in \{1,2,\dots,k\}$，那么softmax回归主要估算输入数据$x_i$归属于每一类的概率，即 $$h_\theta(x_i) = \begin{bmatrix} p\left(y_i=1|x_i;\theta\right) \\ p\left(y_i=2|x_i;\theta\right) \\ \vdots \\ p\left(y_i=k|x_i;\theta\right) \end{bmatrix} = \frac{1}{\sum_{j=1}^k e^{\theta_j^T x_i}} \begin{bmatrix} e^{\theta_1^T x_i} \\ e^{\theta_2^T x_i} \\ \vdots \\ e^{\theta_k^T x_i} \end{bmatrix} \tag{1}$$ 其中，$\theta_1,\theta_2,\dots,\theta_k \in \theta$是模型的参数，乘以$\frac{1}{\sum_{j=1}^k e^{\theta_j^T x_i}}$是为了让概率位于$[0,1]$并且概率之和为1，softmax回归将输入数据$x_i$归属于类别$j$的概率为 $$p\left(y_i=j|x_i;\theta\right) = \frac{e^{\theta_j^T x_i}}{\sum_{l=1}^k e^{\theta_l^T x_i}} \tag{2}$$
+对于输入数据$\{(x_1,y_1),(x_2,y_2),\dots,(x_m,y_m)\}$有$k$个类别，即$y_i \in \{1,2,\dots,k\}$，**softmax回归主要估算输入数据$x_i$归属于每一类的概率**，即 $$h_\theta(x_i) = \begin{bmatrix} p\left(y_i=1|x_i;\theta\right) \\ p\left(y_i=2|x_i;\theta\right) \\ \vdots \\ p\left(y_i=k|x_i;\theta\right) \end{bmatrix} = \frac{1}{\sum_{j=1}^k e^{\theta_j^T x_i}} \begin{bmatrix} e^{\theta_1^T x_i} \\ e^{\theta_2^T x_i} \\ \vdots \\ e^{\theta_k^T x_i} \end{bmatrix} \tag{1}$$ 其中，$\theta_1,\theta_2,\dots,\theta_k \in \theta$是模型的参数，乘以$\frac{1}{\sum_{j=1}^k e^{\theta_j^T x_i}}$是为了让概率位于$[0,1]$并且概率之和为1，softmax回归将输入数据$x_i$归属于类别$j$的概率为 $$p\left(y_i=j|x_i;\theta\right) = \frac{e^{\theta_j^T x_i}}{\sum_{l=1}^k e^{\theta_l^T x_i}} \tag{2}$$
 
 
 
@@ -1208,6 +935,129 @@ l(\mathbf{y}, \hat{\mathbf{y}}) = -\sum_{j=1}^{q} y_j \log \hat{y}_j
 &= \log \sum_{k=1}^{q} \exp(o_k) - \sum_{j=1}^{q} y_j o_j.
 \end{align*}
 $$
+
+求导可得
+$$
+\partial_{o_j} l(\mathbf{y}, \hat{\mathbf{y}}) = \frac{\exp(o_j)}{\sum_{k=1}^{q} \exp(o_k)} - y_j = \text{softmax}(\mathbf{o})_j - y_j
+$$
+
+
+# 多层感知机
+
+### 多层感知机
+
+神经网络是一种模拟人脑神经元结构的数学模型，它通过**层层传递+参数学习**来处理复杂的数据问题。
+
+
+
+神经网络模型大致如下，每一层都会包含一个偏置项，但是偏置项是没有输出连接的。
+
+![Network331.png](./assets/bfd3e060b4ebe5e31145e4924053633f.png)
+
+第一层称为**输入层**，最后一层是**输出层**，中间的称为**隐藏层**，隐藏层中的每个单元称为**激活单元**，其采纳一些特征作为输入，并根据**自身模型**提供一个输出。
+
+​	这是最基本的多层感知机**MLP**，或者说全连接神经网络
+
+
+
+![\textstyle (D:/机器学习/assets/120355d321345cf7d14886639147f127.png) = (W^{(1)}, b^{(1)}, W^{(2)}, b^{(2)})](./assets/120355d321345cf7d14886639147f127.png)
+
+
+
+其中 ![\textstyle W^{(./assets/425eb7f5f59daf9f05afa431348fd4d7.png)}_{ij}](./assets/425eb7f5f59daf9f05afa431348fd4d7.png) 是第 ![\textstyle l](./assets/a2bba02c6a7826a91789d70429382c2d.png) 层第 ![\textstyle j](./assets/b5b9dd7984ddb38491e0fd22ca643e48.png) 单元与第 ![\textstyle l+1](./assets/7f54105bf3106a0cbc2ef415ff39fefe.png) 层第 ![\textstyle i](./assets/e7fac7a0264acd0558200fe1e902a09e.png) 单元之间的联接参数（其实就是连接线上的权重，注意标号顺序）， ![\textstyle b^{(./assets/12646d34b647e4fc9ec869a718cf9235.png)}_i](./assets/12646d34b647e4fc9ec869a718cf9235.png) 是第 ![\textstyle l+1](./assets/7f54105bf3106a0cbc2ef415ff39fefe-1763111554101-1.png) 层第 ![\textstyle i](./assets/e7fac7a0264acd0558200fe1e902a09e-1763111554101-2.png) 单元的偏置项。
+
+
+
+计算过程如下：
+![](./assets/image-20250324091258145.png)
+
+
+
+
+
+一般用![\textstyle z^{(./assets/28f05c3b81022a86e83875f86c34dfb2.png)}_i](./assets/28f05c3b81022a86e83875f86c34dfb2.png) 表示第 ![\textstyle l](./assets/a2bba02c6a7826a91789d70429382c2d-1742778974573-21.png) 层第 ![\textstyle i](./assets/e7fac7a0264acd0558200fe1e902a09e-1742778974573-23.png) 单元输入加权和（包括偏置单元），比如， ![\textstyle  z_i^{(./assets/82c4583ce05a6ec7d1d9fcaeb34a8a4c.png)} = \sum_{j=1}^n W^{(1)}_{ij} x_j + b^{(1)}_i](./assets/82c4583ce05a6ec7d1d9fcaeb34a8a4c.png) ，则 ![\textstyle a^{(./assets/3c5e91857bd0fcf0420c251fe6c81218.png)}_i = f(z^{(l)}_i)](./assets/3c5e91857bd0fcf0420c251fe6c81218.png) 。
+
+这样就有更简洁的表示方法了
+
+![\begin{align}z^{(./assets/563b66c6d3362528ead8db5a0ad540e2.png)} &= W^{(1)} x + b^{(1)} \\a^{(2)} &= f(z^{(2)}) \\z^{(3)} &= W^{(2)} a^{(2)} + b^{(2)} \\h_{W,b}(x) &= a^{(3)} = f(z^{(3)})\end{align}](./assets/563b66c6d3362528ead8db5a0ad540e2.png)
+
+
+
+上述的计算步骤就是前向传播，只要给定前一层的激活值，那么后一层就可以递推出来
+
+![\begin{align}z^{(./assets/7113e4d8c3bf152de4fde4157841c66b.png)} &= W^{(l)} a^{(l)} + b^{(l)}   \\a^{(l+1)} &= f(z^{(l+1)})\end{align}](./assets/7113e4d8c3bf152de4fde4157841c66b.png)
+
+
+
+每一层求解出的特征是**神经网络通过学习**得到的一系列用于预测变量的**新特征**，这些特征值比将输入组合为高次项更为**有效**。
+
+假设X有(5000,400)，这里的$$a_1^{(1)}$$是(1,400)的**行向量**也就是训练并不会修改**输入的个数**，**而是在输入的特征个数上拟合训练**
+
+
+
+## 激活函数
+
+激活函数定义了节点在给定的输入或输入集合下的输出，给神经网络引入**非线性**能力，使其能学习复杂的特征和映射关系。
+
+
+
+## ReLU
+
+Rectified linear unit，ReLU，修正线性单元，**它的实现非常简单，同时在各种预测任务中表现良好，减轻了梯度消失的问题**。
+$$
+\text{ReLU}(x) = \max(x, 0)
+$$
+![image-20251114172454646](./assets/image-20251114172454646.png)
+
+
+
+当**输入为负**时，ReLU函数的**导数为0**，当**输入为正**时，**导数为1**，**输入为0**时，**RuLU不可导，默认使用左侧的导数**。
+
+![image-20251114172445539](./assets/image-20251114172445539.png)
+
+
+
+Parameterized ReLU，pReLU 是ReLU的一个变体
+$$
+\text{pReLU}(x) = \max(0, x) + \alpha \min(0, x)
+$$
+
+
+### sigmod
+
+**sigmod将输入变换为区间(0,1)上的输出**
+$$
+\text{sigmoid}(x) = \frac{1}{1 + \exp(-x)}
+$$
+![image-20251114172943961](./assets/image-20251114172943961.png)
+
+
+
+导数公式如下
+$$
+\frac{d}{dx} \text{sigmoid}(x) = \frac{\exp(-x)}{(1 + \exp(-x))^2} = \text{sigmoid}(x) \left( 1 - \text{sigmoid}(x) \right)
+$$
+![image-20251114173139421](./assets/image-20251114173139421.png)
+
+
+
+
+
+### tanh
+
+**tanh(双曲正切)函数也能将其输入压缩转换到区间(‐1, 1)**，公式如下
+$$
+ \tanh(x) = \frac{1 - \exp(-2x)}{1 + \exp(-2x)}
+$$
+![image-20251114173411826](./assets/image-20251114173411826.png)
+
+
+
+导数公式如下
+$$
+\frac{d}{dx} \tanh(x) = 1 - \tanh^2(x) 
+$$
+![image-20251114173424743](./assets/image-20251114173424743.png)
 
 
 
